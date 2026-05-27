@@ -80,7 +80,7 @@ If you find this code or methodology useful in your research, please consider ci
 Code snippet
 @article{trivedi2026skinrisk,
   title={A heterogeneous three-model ensemble with per-backbone metadata fusion and fused class-activation mapping for ordinal skin-lesion severity staging},
-  author={Trivedi, Harsh and Kumar, Shiwank and Ranjan, Pranav and A, Sasikumar},
+  author={Trivedi Harsh,Kumar Shiwank,Ranjan Pranav and A Sasikumar},
   journal={Turkish Journal of Electrical Engineering & Computer Sciences},
   year={2026}
 }
