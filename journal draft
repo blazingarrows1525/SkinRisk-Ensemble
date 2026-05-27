@@ -1,0 +1,498 @@
+\documentclass{elektr}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, urlcolor=black, citecolor=blue}
+\usepackage[all]{xy,xypic}
+\usepackage{amsfonts,amssymb,amsmath,amsgen,amsopn,amsbsy,theorem,graphicx,epsfig}
+\usepackage{eufrak,amscd,bezier,latexsym,mathrsfs,eurosym,enumerate}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{cleveref,multirow}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[pagewise]{lineno}
+\linenumbers
+
+\yil{}
+\vol{}
+\fpage{}
+\lpage{}
+\doi{}
+
+\title{A heterogeneous three-model ensemble with per-backbone metadata fusion and fused class-activation mapping for ordinal skin-lesion severity staging}
+
+\author[TRIVEDI et al.]{
+  \textbf{Harsh TRIVEDI$^{1}$, Shiwank KUMAR$^{1}$, Pranav RANJAN$^{1}$, Sasikumar A$^{1,}$\thanks{sasikumaraphd@gmail.com}}\\
+  $^{1}$Department of Data Science and Business Systems, School of Computing,\\
+  SRM Institute of Science and Technology, Kattankulathur, Chennai, India\\
+  Harsh TRIVEDI: \url{https://orcid.org/0000-0000-0000-0000}\\
+  Shiwank KUMAR: \url{https://orcid.org/0000-0000-0000-0000}\\
+  Pranav RANJAN: \url{https://orcid.org/0000-0000-0000-0000}\\
+  Sasikumar A: \url{https://orcid.org/0000-0000-0000-0000}\\[1.0em]
+  % >>> ACTION REQUIRED: replace the four 0000-... iDs above with each author's
+  % real 16-digit ORCID. ORCID is mandatory at submission.
+  \rec{...} \acc{...} \finv{...}
+}
+
+\input{elksty.tex}
+
+\setcounter{page}{1}
+\begin{document}
+
+\maketitle
+
+% =============================================================================
+\begin{abstract}
+In frontline telemedicine the clinician who first inspects a suspicious skin lesion is usually a primary-care physician working from a photograph rather than a dermatologist with a dermatoscope, and what that clinician needs is a triage urgency rather than an exact diagnostic label. SkinRisk++ is built around this requirement. It maps the seven diagnostic categories of the HAM10000 dataset onto a five-stage ordinal severity scale, from normal to critical, and predicts that scale with a heterogeneous ensemble of three backbones: EfficientNet-B4, EfficientNet-B5, and an ImageNet-22K ConvNeXt-Base. Rather than appending patient metadata at the end of the pipeline, each backbone carries a dedicated metadata branch, so that age, biological sex, and lesion site interact with the image features before the voting stage. Training combines joint image--metadata Mixup, CutMix, and a class-weighted cross-entropy with label smoothing to handle a severe class imbalance. At inference the networks cast a soft vote with weights of 0.30, 0.30, and 0.40 chosen by an exhaustive 2-simplex sweep, and the same weights fuse the three class-activation maps into a single spatial explanation. On 1503 held-out images the ensemble attains a weighted F1 of 86.20\%, a macro area under the receiver operating characteristic curve of 97.11\%, and an accuracy of 85.36\%. The largest per-class gain is on stage 2 (actinic keratosis), where F1 rises by 18.7 percentage points over a two-model baseline, and expected calibration error falls from 0.052 to 0.007. An eight-component ablation and 1000-resample bootstrap confidence intervals confirm that each design choice contributes measurably, while a per-class sensitivity analysis identifies the residual melanoma-recall gap that bounds the system to an assistive role.
+
+\keywords{Skin lesion classification, ordinal severity staging, convolutional ensemble, metadata fusion, model calibration}
+\end{abstract}
+
+% =============================================================================
+\section{Introduction}
+\label{Int}
+
+Melanoma incidence continues to rise across most demographic groups, which keeps skin cancer a major global health concern. The prognosis depends sharply on timing: five-year survival exceeds 98\% when melanoma is detected at stage 0 but falls below 25\% once distant metastases appear \cite{ref2}. Much of the gap between those two figures is, in practice, a referral-speed problem rather than a pure classification problem, and recent ensemble studies confirm that gains in early-stage accuracy translate into measurable mortality reductions \cite{ref1}.
+
+In most healthcare systems the first observer of a suspicious mole is a primary-care physician, often working from a smartphone photograph rather than a dermatoscope. This creates a mismatch between what image classifiers output and what frontline clinicians need. Research models typically optimise for a precise diagnostic code such as \textit{actinic keratosis} or \textit{nevus}, whereas the clinician's first question is how soon the patient must be seen. Reframing the task as a five-stage ordinal scale resolves the output for triage and, in addition, exposes a hazard gradient that flat-class losses ignore: confusing a stage 0 lesion with stage 1 is comparatively harmless, but confusing stage 0 with stage 4 can be fatal. HAM10000 \cite{ref3} also ships structured fields --- patient age, sex, and lesion site --- that image-only pipelines discard, and they discard them precisely where they are most informative, at the rare and visually ambiguous classes.
+
+Ensemble diversity is our third design lever. EfficientNet builds on compound-scaled $3\times3$ convolutions \cite{ref4}, whereas ConvNeXt uses $7\times7$ depthwise kernels with inverted bottlenecks \cite{ref5}; because these families read an image through different inductive biases, they make structurally different errors. In the standard variance decomposition for an averaged predictor \cite{ref6},
+\begin{equation}
+\label{eq:var}
+\mathrm{Var}(\bar{y}) = \rho\,\sigma^{2} + \frac{1-\rho}{N}\,\sigma^{2},
+\end{equation}
+the dominant term scales with the inter-model correlation $\rho$. On our test set the B4 and ConvNeXt probabilities correlate at $\rho=0.64$, against $0.87$ between the two EfficientNets, so the benefit of adding a third model lives inside that correlation gap. Finally, because a black-box risk score is of little clinical use, we extend class-activation mapping \cite{ref7} across all three backbones and fuse the saliency maps with the same weights used in the probability vote, so that regions all three networks agree on are reinforced while single-network noise is averaged away.
+
+The contributions of this work are:
+\begin{enumerate}
+  \item a clinically grounded five-stage ordinal re-labelling of HAM10000;
+  \item a heterogeneous three-backbone ensemble with measurably low inter-model correlation ($\rho_{\mathrm{B4}\leftrightarrow\mathrm{Cnx}}=0.64$);
+  \item per-backbone metadata branches trained with joint image--metadata Mixup interpolation;
+  \item a three-model spatial-explanation framework driven by weight-matched saliency fusion; and
+  \item a full 2-simplex weight search with bootstrap 95\% confidence intervals, an eight-component ablation, and an expected-calibration-error analysis, together with a per-class sensitivity/specificity characterisation of the residual error.
+\end{enumerate}
+
+% =============================================================================
+\section{Related work}
+\label{Sec:Related}
+
+Modern dermoscopy classification grew out of early convolutional networks that matched board-certified dermatologists on melanoma detection \cite{ref2}. A broad body of work has since explored convolutional architectures for skin-disease identification and prognosis \cite{ref8,ref9,ref10}, while the challenges organised by the International Skin Imaging Collaboration \cite{ref11} pushed the field toward harder taxonomies and demonstrated the effectiveness of ensemble strategies such as multi-scale pooling networks \cite{ref12}. Within that line, Qian et al. \cite{ref13} used multi-scale attention to sharpen lesion-boundary classification, and Annapoorani et al. \cite{ref14} combined tiered frameworks such as MSPLnet to advance medical image processing.
+
+Clinical-metadata fusion is a parallel thread. Pacheco and Krohling \cite{ref15} reported a 1--2 percentage-point F1 gain on HAM10000 from simply concatenating patient demographics onto image features. Channel-guided multimodal fusion has since been applied to encephalitis prognosis \cite{ref16}, and genetic and lifestyle signals have been combined for skin-concern severity prediction \cite{ref17}. The structural change we introduce is the per-backbone metadata branch: instead of reshaping features through a single shared fusion layer, each model keeps its own calibration through a dedicated classifier head prior to the soft vote, which matters for the ensemble's downstream reliability.
+
+Attention mechanisms and hybrid models are also widely used to handle complex morphology. Zaheer et al. \cite{ref18} augmented U-Nets with attention layers for prostate grading and explainability, and Lakshmi and Pushpa \cite{ref19} applied cross-attention fusion of ultrasound and clinical features. Severity grading in animals offers a close parallel to human dermoscopy: recent frameworks have classified and graded lumpy skin disease in cattle using attention-based convolutional networks and multi-task designs \cite{ref20,ref21,ref22}, confirming that ordinal-staging frameworks transfer across imaging domains.
+
+On the architecture side, ConvNeXt \cite{ref5} modernises a ResNet with design choices drawn from the Swin Transformer \cite{ref23}, recovering the transformer-level accuracy of the original Vision Transformer \cite{ref24} on HAM10000-scale data without requiring the massive corpora those attention-based models typically demand. Ordinal severity grading on top of modern backbones has proven effective in adjacent medical domains, for example grading sarcopenia severity through model fusion \cite{ref25}. The literature consistently identifies architectural diversity and interpretability as prerequisites for deployable clinical systems; we adapt spatial mapping \cite{ref7} to the three-backbone setting to meet the interpretability requirement directly.
+
+% =============================================================================
+\section{Materials and methods}
+\label{Sec:Methods}
+
+\subsection{Dataset and severity mapping}
+HAM10000 \cite{ref3} comprises 10\,014 dermoscopy images collected at clinical sites in Vienna and Queensland, each carrying one of seven diagnostic labels with structured metadata. We collapse the seven diagnoses into five ordered severity stages, from benign nevi at stage 0 to melanoma at stage 4 (Table~\ref{tab:mapping}). Benign nevi dominate at 66.9\% of the data while the pre-cancerous stage 2 class holds only 3.3\%, a roughly 20:1 imbalance ratio that dictated our sampling and loss-weighting strategy through the inverse-frequency weights $w_{c}=N/(C\!\cdot\!N_{c})$ listed in the table.
+
+\begin{table}[h!]
+\caption{Severity mapping, per-class support, and inverse-frequency loss weights $w_{c}$, clipped at 10.0.}
+\label{tab:mapping}
+\begin{center}
+\begin{tabular}{|c|l|l|r|c|}
+\hline
+\textbf{Stage} & \textbf{Label} & \textbf{Diagnoses} & \textbf{Count} & $\boldsymbol{w_{c}}$ \\
+\hline
+0 & Normal   & nv            & 6704 & 0.30 \\
+\hline
+1 & Mild     & bkl, df, vasc & 1356 & 1.48 \\
+\hline
+2 & Moderate & akiec         &  327 & 6.12 \\
+\hline
+3 & Severe   & bcc           &  514 & 3.89 \\
+\hline
+4 & Critical & mel           & 1113 & 1.80 \\
+\hline
+\multicolumn{3}{|l|}{\textbf{Total}} & 10014 & --- \\
+\hline
+\end{tabular}
+\end{center}\vs{-4mm}
+\end{table}
+
+Each sample is described by a 17-dimensional metadata vector. Because 57 records lacked an age value we applied median imputation and normalised to $[0,1]$, adding three binary age-bracket indicators. Biological sex is a single binary feature. The eight most frequent anatomical sites are one-hot encoded with a ninth slot for the remainder, and two modality flags (histopathology and confocal) record the ground-truth provenance. The data were split 70/15/15 with stratification on the severity label, giving 7\,009 training, 1\,502 validation, and 1\,503 test images.
+
+\subsection{Ensemble architecture}
+The framework processes each image at three native resolutions in parallel: $380^{2}$ for EfficientNet-B4, $456^{2}$ for EfficientNet-B5, and $384^{2}$ for ConvNeXt-Base. Each backbone $\mathcal{F}^{(k)}_{\theta}$, $k\in\{\mathrm{B4},\mathrm{B5},\mathrm{Cnx}\}$, produces a pooled visual embedding through global average pooling,
+\begin{equation}
+\label{eq:gap}
+\mathbf{v}^{(k)} = \mathrm{GAP}\!\left(\mathcal{F}^{(k)}_{\theta}(\mathbf{X})
+\right)\in\mathbb{R}^{d^{(k)}_{v}},
+\qquad d_{v}\in\{1792,2048,1024\}.
+\end{equation}
+The per-backbone metadata branch computes
+\begin{equation}
+\label{eq:meta}
+\mathbf{m}^{(k)} = \mathrm{ReLU}\!\left(\mathbf{W}^{(k)}_{2}\,
+\mathrm{BN}\!\left(\mathrm{ReLU}\!\left(\mathbf{W}^{(k)}_{1}
+\mathbf{x}_{\mathrm{meta}}\right)\right)\right)\in\mathbb{R}^{32},
+\end{equation}
+where BN denotes batch normalisation and a dropout of 0.3 is applied before $\mathbf{W}_{2}$. For the ConvNeXt branch the output is widened to 64 dimensions and the ReLU activations are replaced with GELU to match the backbone. The fused representation $\mathbf{z}^{(k)}=\mathbf{v}^{(k)}\oplus\mathbf{m}^{(k)}$ passes through a per-branch classifier head that emits the five-class softmax probabilities $p^{(k)}_{c}$. Figure~\ref{fig:arch} shows the overall layout.
+
+\begin{figure}[h!]
+\begin{center}
+\includegraphics[width=15.5cm]{fig_architecture}
+\caption{SkinRisk++ overview. Three backbones process the input image at their native resolutions in parallel, each paired with a private metadata multi-layer perceptron. Weighted soft voting at (0.30, 0.30, 0.40) yields the prediction and the continuous risk score.}
+\label{fig:arch}
+\end{center}\vs{-4mm}
+\end{figure}
+
+\subsection{Training protocol}
+All networks are trained with AdamW \cite{ref26} and layer-wise learning rates ($\eta_{\mathrm{backbone}}=10^{-5}$, $\eta_{\mathrm{head}}=3\times10^{-4}$), weight decay $10^{-4}$, gradient clipping $\lVert\mathbf{g}\rVert_{2}\le1.0$, and a CosineAnnealingWarmRestarts schedule ($T_{0}=15$, $T_{\mathrm{mult}}=2$, $\eta_{\min}=10^{-7}$). Optimisation runs for up to 60 epochs at a batch size of 32 under automatic mixed precision. Each backbone is frozen for the first few epochs (five for the EfficientNets, two for ConvNeXt) while the classifier head stabilises, after which the backbone is progressively unfrozen. The label-smoothed target for the true class $k$ is
+\begin{equation}
+\label{eq:smooth}
+\tilde{y}_{c}=
+\begin{cases}
+(1-\epsilon)+\epsilon/C, & c=k\\[2pt]
+\epsilon/C, & c\neq k
+\end{cases}
+\qquad \epsilon=0.1,\; C=5,
+\end{equation}
+and the batch loss applies an inverse-frequency weight $w_{k(n)}$, clipped at 10.0 to prevent the rarest class from producing runaway gradients,
+\begin{equation}
+\label{eq:loss}
+\mathcal{L} = -\frac{1}{B}\sum_{n=1}^{B} w_{k(n)}\sum_{c=0}^{C-1}
+\tilde{y}^{(n)}_{c}\log p^{(n)}_{c}.
+\end{equation}
+For a sampled Mixup pair \cite{ref27} with $\lambda\sim\mathrm{Beta}(0.3,0.3)$ we interpolate both the image and the metadata,
+\begin{align}
+\label{eq:mixupimg}
+\tilde{\mathbf{X}} &= \lambda\mathbf{X}_{a}+(1-\lambda)\mathbf{X}_{b},\\
+\label{eq:mixupmeta}
+\tilde{\mathbf{x}}_{\mathrm{meta}} &= \lambda\mathbf{x}^{(a)}_{\mathrm{meta}}
++(1-\lambda)\mathbf{x}^{(b)}_{\mathrm{meta}}.
+\end{align}
+CutMix \cite{ref28} leaves the metadata untouched, since pasting an image patch does not change a patient's age or lesion site. Each batch draws Mixup with probability 0.20, CutMix with probability 0.20, and otherwise passes through unaltered.
+
+\subsection{Ensemble aggregation and clinical score}
+The ensemble posterior is a weighted sum of the three softmax vectors,
+\begin{equation}
+\label{eq:vote}
+\hat{\mathbf{p}} = w_{\mathrm{B4}}\mathbf{p}^{(\mathrm{B4})}
++ w_{\mathrm{B5}}\mathbf{p}^{(\mathrm{B5})}
++ w_{\mathrm{Cnx}}\mathbf{p}^{(\mathrm{Cnx})},
+\qquad \textstyle\sum_{k}w_{k}=1,\; w_{k}\ge0.
+\end{equation}
+We swept the 2-simplex at a step of 0.05, evaluating 231 weight triples; the argmax of validation F1 fell at (0.30, 0.30, 0.40), and the surrounding F1 surface is a broad plateau rather than a fragile peak, so the operating point is robust to small retuning. The posterior is reduced to a scalar risk score by taking the index-weighted sum,
+\begin{equation}
+\label{eq:risk}
+R(x) = 25\sum_{c=0}^{4} s_{c}\,\hat{p}_{c}(x), \qquad s_{c}\in\{0,1,2,3,4\},
+\end{equation}
+giving a 0--100 scale with triage cutoffs at $R\in\{20,40,60,80\}$.
+
+\subsection{Fused spatial interpretability}
+Let $\mathbf{A}^{(k)}$ denote the final convolutional activations of backbone $k$ and $h^{(k)}_{t}$ the target logit. We compute the channel-importance weights $\alpha^{(k,t)}_{j}=\frac{1}{H_{k}W_{k}}\sum_{u,v}\partial h^{(k)}_{t}/\partial A^{(k)}_{j,u,v}$ and form the per-backbone saliency map $\mathbf{L}^{(k,t)}=\mathrm{ReLU}(\sum_{j}\alpha^{(k,t)}_{j}\mathbf{A}^{(k)}_{j})$, min--max normalised to $[0,1]$. Because the three backbones operate at different resolutions, each map is bilinearly resized to a common dimension and the maps are blended with the probability-vote weights,
+\begin{equation}
+\label{eq:fuse}
+\mathbf{L}^{\star} = \mathcal{N}\!\left(w_{\mathrm{B4}}\tilde{\mathbf{L}}^{
+(\mathrm{B4})}+w_{\mathrm{B5}}\tilde{\mathbf{L}}^{(\mathrm{B5})}
++w_{\mathrm{Cnx}}\tilde{\mathbf{L}}^{(\mathrm{Cnx})}\right),
+\end{equation}
+where $\mathcal{N}(\cdot)$ is min--max normalisation. Equation~\ref{eq:fuse} is the spatial counterpart of Eq.~\ref{eq:vote}: regions of agreement are reinforced while isolated single-network activations fade into the background.
+
+% =============================================================================
+\section{Results and discussion}
+\label{Sec:Results}
+
+All experiments ran on a workstation with an NVIDIA RTX~4500 Ada (24~GB VRAM) and 64~GB of memory, under PyTorch~2.5.1 and CUDA~12.1. End-to-end training of the ensemble took approximately 12.7 GPU-hours. We report weighted F1, one-versus-rest macro AUC-ROC, accuracy, per-class metrics, and expected calibration error \cite{ref29} computed over ten bins.
+
+\subsection{Aggregate performance}
+EfficientNet-B4 reaches 79.86\% F1 and B5 reaches 82.73\%, while ConvNeXt is the strongest single model at 87.94\% F1 on validation, a margin most plausibly attributable to its ImageNet-22K pretraining (Table~\ref{tab:aggregate}). Combining only the two EfficientNets drops F1 below B5 alone (81.55\%), the textbook signature of over-correlated ensemble members and the observation that motivated adding a structurally different backbone. With ConvNeXt included, SkinRisk++ reaches 86.20\% F1, 97.11\% macro AUC, and 85.36\% accuracy on the held-out test set. The F1 gain over the two-model baseline (+4.65 pp) exceeds the AUC gain (+1.79 pp), which indicates that the third backbone flips the arg max on borderline samples rather than merely re-ordering probabilities.
+
+\begin{table}[h!]
+\caption{Test-set performance. $^{\dagger}$ConvNeXt is reported on the validation split; test inference is at ensemble level only. Voting weights are (0.30, 0.30, 0.40).}
+\label{tab:aggregate}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Model} & \textbf{F1 (\%)} & \textbf{AUC (\%)} & \textbf{Acc. (\%)} \\
+\hline
+EfficientNet-B4            & 79.86 & 92.59 & --- \\
+\hline
+EfficientNet-B5            & 82.73 & 92.83 & --- \\
+\hline
+ConvNeXt-Base$^{\dagger}$  & 87.94 & 97.16 & --- \\
+\hline
+Ensemble B4+B5 (prior)     & 81.55 & 95.32 & --- \\
+\hline
+\textbf{SkinRisk++ (ours)} & \textbf{86.20} & \textbf{97.11} & \textbf{85.36} \\
+\hline
+\end{tabular}
+\end{center}\vs{-4mm}
+\end{table}
+
+\subsection{Statistical significance and calibration}
+Bootstrap 95\% confidence intervals from 1000 test-set resamples place the SkinRisk++ F1 interval at $[84.77,87.63]$, fully disjoint from the baseline interval of $[79.75,83.35]$; the separation is roughly $2.9\sigma$ under bootstrap noise, so the improvement exceeds resampling variance, and AUC behaves the same way. On calibration, voting across structurally dissimilar backbones cancels much of the per-model over-confidence (Figure~\ref{fig:diversity}): expected calibration error falls from 0.052 for the best single backbone to 0.007 for the full ensemble, an approximately seven-fold reduction that yields markedly more reliable probability outputs.
+
+\begin{figure}[h!]
+\begin{center}
+\includegraphics[width=15.5cm]{fig_diversity_recon}
+\caption{Ensemble effects. (a) Pairwise inter-model correlation $\rho$; $\rho_{\mathrm{B4}\leftrightarrow\mathrm{Cnx}}=0.64$ is the empirical signature of architectural diversity. (b) Reliability diagram: soft voting collapses the per-model over-confidence toward the identity line.}
+\label{fig:diversity}
+\end{center}\vs{-4mm}
+\end{figure}
+
+\subsection{Per-class improvements}
+Every class improves over the baseline, but the magnitude is uneven (Table~\ref{tab:perclass}). Stage 2 gains +18.7 pp of F1, roughly four times the next-largest class gain. This is clinically meaningful rather than cosmetic: stage 2 is actinic keratosis, the rarest class and the stage at which early detection most directly prevents progression to squamous cell carcinoma. Because actinic keratosis is visually similar to both stage 1 and stage 3 lesions, dermoscopy alone separates them poorly; routing patient metadata into the feature branches lets the model use demographics as a tiebreaker, which is why removing the metadata branch costs stage 2 nearly 8 pp against an average of about 1.8 pp elsewhere.
+
+\begin{table}[h!]
+\caption{Per-class F1 for the B4+B5 baseline versus SkinRisk++. $\Delta$ is in percentage points.}
+\label{tab:perclass}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Stage} & \textbf{Baseline} & \textbf{SkinRisk++} & $\boldsymbol{\Delta}$ \\
+\hline
+Stage 0 (Normal)   & 88.3 & \textbf{91.2} & +2.9 \\
+\hline
+Stage 1 (Mild)     & 71.0 & \textbf{75.4} & +4.4 \\
+\hline
+Stage 2 (Moderate) & 58.2 & \textbf{76.9} & +18.7 \\
+\hline
+Stage 3 (Severe)   & 81.2 & \textbf{85.1} & +3.9 \\
+\hline
+Stage 4 (Critical) & 62.8 & \textbf{68.5} & +5.7 \\
+\hline
+Weighted           & 81.6 & \textbf{86.2} & +4.6 \\
+\hline
+\end{tabular}
+\end{center}\vs{-4mm}
+\end{table}
+
+\subsection{Clinical diagnostic metrics}
+A triage tool is judged clinically on sensitivity (the fraction of genuine cases a tier catches) and specificity (how rarely it raises a false alarm), both computable directly from the confusion matrix. Figure~\ref{fig:sensspec} reports them per stage. The ensemble is highly specific across every tier, reaching 99.1\% specificity on stage 4: when it raises a melanoma-level alarm, that alarm is almost always warranted, which preserves scarce specialist capacity. The critical caveat is stage 4 sensitivity of only 53.9\%. The system fails to assign the highest tier to roughly half of true melanomas, with most of those cases mapped to lower tiers, so high stage 4 specificity must not be read as clinical safety. In a triage setting a missed melanoma is far costlier than a false alarm, and this recall gap is the principal reason the present system is positioned as a clinician-assist tool rather than an autonomous one.
+
+\begin{figure}[h!]
+\begin{center}
+\includegraphics[width=12.0cm]{fig_sens_spec}
+\caption{Per-class sensitivity and specificity. The high specificity on stage 4 (99.1\%) contrasts with its 53.9\% sensitivity, which is the system's principal clinical limitation.}
+\label{fig:sensspec}
+\end{center}\vs{-4mm}
+\end{figure}
+
+\subsection{Error structure}
+The confusion matrix and its ordinal-distance profile (Figure~\ref{fig:confusion}) show that errors are largely, though not entirely, ordinal. Of the 219 test-set errors, about 32\% are adjacent-stage slips ($|i-j|=1$) and a further 32\% lie at distance 2, so roughly two-thirds remain within two stages of the truth. The remaining tail is the clinically important part: distance-4 errors account for 23.7\% of all mistakes, driven chiefly by 45 true melanomas predicted as Normal. These distance-4 transpositions are precisely the failures a triage tool must minimise, and reducing them is the central target for future work.
+
+\begin{figure}[h!]
+\begin{center}
+\includegraphics[width=15.5cm]{fig_confusion}
+\caption{Ensemble error analysis on the test set ($n=1503$). (a) Raw-count confusion matrix; (b) row-normalised recall per class; (c) distribution of errors by ordinal distance $|i-j|$.}
+\label{fig:confusion}
+\end{center}\vs{-4mm}
+\end{figure}
+
+\subsection{Ablation study}
+Removing the ConvNeXt branch costs $-4.65$ pp F1, making it the single most valuable component (Table~\ref{tab:ablation}). Disabling the progressive unfreeze schedule costs $-3.30$ pp, confirming that freshly initialised heads can corrupt pretrained features if not managed. Removing the metadata branches costs $-1.80$ pp globally but, as noted above, nearly 8 pp on stage 2 in isolation. Automatic mixed precision is essentially free on accuracy ($-0.05$ pp) while saving roughly 40\% of the memory footprint, so it is retained.
+
+\begin{table}[h!]
+\caption{Eight-component ablation. $\Delta$F1 is measured relative to the full SkinRisk++ system.}
+\label{tab:ablation}
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Configuration} & \textbf{F1 (\%)} & $\boldsymbol{\Delta}$ \\
+\hline
+\textbf{Full SkinRisk++}               & \textbf{86.20} & --- \\
+\hline
+w/o ConvNeXt branch (B4+B5 only)       & 81.55 & $-4.65$ \\
+\hline
+w/o progressive unfreeze               & 82.90 & $-3.30$ \\
+\hline
+w/o metadata branch (image-only)       & 84.40 & $-1.80$ \\
+\hline
+w/o Mixup + CutMix                     & 84.70 & $-1.50$ \\
+\hline
+w/o weighted sampler                   & 85.10 & $-1.10$ \\
+\hline
+w/o label smoothing ($\epsilon=0$)     & 85.50 & $-0.70$ \\
+\hline
+w/o automatic mixed precision (fp32)   & 86.15 & $-0.05$ \\
+\hline
+\end{tabular}
+\end{center}\vs{-4mm}
+\end{table}
+
+\subsection{Visual explanations}
+Across the five-stage saliency grid (Figure~\ref{fig:gradcam}), ConvNeXt keeps a tighter focus on the lesion body than either EfficientNet, consistent with its stronger standalone metrics, and where the two EfficientNets err they tend to err together by sliding their attention peak off the lesion centroid. Fusing the maps through Eq.~\ref{eq:fuse} lets the result inherit ConvNeXt's spatial discipline while retaining the EfficientNet feature vocabulary, producing a localisation that no single backbone achieves alone. The fused explanation thus inherits the same variance-reduction property as the probability vote, lifting it from the prediction to the spatial domain.
+
+\begin{figure}[h!]
+\begin{center}
+\includegraphics[width=15.5cm]{fig_gradcam}
+\caption{Fused class-activation maps across the five severity stages. Columns: original image, B4, B5, ConvNeXt, and the fused map of Eq.~\ref{eq:fuse}. The fused maps localise the lesion more tightly than any individual backbone.}
+\label{fig:gradcam}
+\end{center}\vs{-4mm}
+\end{figure}
+
+\subsection{Limitations}
+Three limitations bound any clinical reading of these results. First, the 53.9\% melanoma sensitivity discussed above means the system is unsafe without a clinician in the loop. Second, HAM10000 is drawn from two European sites and skews toward lighter Fitzpatrick skin types, so transfer to darker tones is untested. Third, a five-stage mapping defined on diagnosis codes is a diagnosis-level proxy, not a patient-level one, and cannot encode context such as a benign lesion in an immunocompromised patient that should still be treated urgently. A prospective reader study comparing assisted and unassisted clinician decisions is the necessary step before any deployment claim.
+
+% =============================================================================
+\section{Conclusion}
+\label{Sec:Conclusion}
+
+SkinRisk++ reframes skin-lesion classification as an ordinal severity-staging problem and attacks it with a heterogeneous ensemble of an ImageNet-22K ConvNeXt and two EfficientNets, each granted a private metadata branch. The system reaches 86.20\% weighted F1 and 97.11\% macro AUC on the held-out split, with most of the clinical weight of the improvement concentrated on stage 2 (+18.7 pp). The gain flows through three compounding mechanisms: the inter-model correlation dropping from 0.87 to 0.64 when ConvNeXt is added, the metadata branch sharpening decisions on visually ambiguous classes, and the progressive unfreeze schedule preserving pretrained filters. The fused class-activation framework lifts the ensemble's variance-reduction property from the probability vector to the spatial explanation. The residual melanoma-recall gap, however, keeps the system in an assistive role; closing it through uncertainty-aware ensembling and validating across diverse skin tones and multi-centre clinical settings  are the priorities for future work.
+
+% =============================================================================
+\section*{Acknowledgment}
+We thank the Department of Data Science and Business Systems, School of Computing, SRM Institute of Science and Technology, for providing computational facilities, and the curators of the HAM10000 dataset for making the data publicly available.
+
+\section*{Declaration of generative AI and AI-assisted technologies}
+% >>> ACTION REQUIRED: the journal requires the NAME and VERSION of the tool and
+% the exact prompt(s) used. Replace the bracketed placeholders below truthfully.
+During the preparation of this work the authors used [TOOL NAME AND VERSION] in
+order to reformat the manuscript to the journal's LaTeX template and to refine the
+clarity of the English text. The prompts employed are available from the authors
+on request. After using this tool the authors reviewed and edited the content as
+needed and take full responsibility for the content of the publication.
+
+\section*{Data availability statement}
+The HAM10000 dataset analysed in this study is publicly available via the Harvard Dataverse and the ISIC Archive, at \href{https://doi.org/10.1038/sdata.2018.161}{https://doi.org/10.1038/sdata.2018.161}.
+
+\section*{Funding}
+This research received no specific grant from any funding agency in the public, commercial, or not-for-profit sectors.
+
+\section*{Conflict of interest}
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+\section*{Informed consent}
+This study relies entirely on retrospective analysis of the publicly available, fully de-identified HAM10000 dataset. No new human subjects were recruited and no new experimental investigations with humans were conducted by the authors.
+
+% =============================================================================
+\begin{thebibliography}{99}
+\bibitem{ref1} Ahmed I, Routh BB, Kohinoor MSR, Sakib S, Rahman MM et al.
+Multi-model attentional fusion ensemble for accurate skin cancer classification.
+IEEE Access 2024; 12: 181009-181024. https://doi.org/10.1109/ACCESS.2024.3506891
+
+\bibitem{ref2} Esteva A, Kuprel B, Novoa RA, Ko J, Swetter SM et al.
+Dermatologist-level classification of skin cancer with deep neural networks.
+Nature 2017; 542 (7639): 115-118. https://doi.org/10.1038/nature21056
+
+\bibitem{ref3} Tschandl P, Rosendahl C, Kittler H. The HAM10000 dataset, a large
+collection of multi-source dermatoscopic images of common pigmented skin lesions.
+Scientific Data 2018; 5: 180161. https://doi.org/10.1038/sdata.2018.161
+
+\bibitem{ref4} Tan M, Le QV. EfficientNet: rethinking model scaling for
+convolutional neural networks. In: 36th International Conference on Machine
+Learning; Long Beach, CA, USA; 2019. pp. 6105-6114.
+
+\bibitem{ref5} Liu Z, Mao H, Wu CY, Feichtenhofer C, Darrell T et al. A ConvNet
+for the 2020s. In: IEEE/CVF Conference on Computer Vision and Pattern Recognition;
+New Orleans, LA, USA; 2022. pp. 11976-11986.
+https://doi.org/10.1109/CVPR52688.2022.01167
+
+\bibitem{ref6} Mahbod A, Schaefer G, Wang C, Dorffner G, Ecker R et al. Transfer
+learning using a multi-scale and multi-network ensemble for skin lesion
+segmentation. Computers in Biology and Medicine 2020; 118: 103631.
+https://doi.org/10.1016/j.compbiomed.2020.103631
+
+\bibitem{ref7} Selvaraju RR, Cogswell M, Das A, Vedantam R, Parikh D et al.
+Grad-CAM: visual explanations from deep networks via gradient-based localization.
+In: IEEE International Conference on Computer Vision; Venice, Italy; 2017. pp.
+618-626. https://doi.org/10.1109/ICCV.2017.74
+
+\bibitem{ref8} Saifan R, Jubair F. Six skin diseases classification using deep
+convolutional neural network. International Journal of Electrical and Computer
+Engineering 2022; 12 (3): 3072-3082.
+https://doi.org/10.11591/ijece.v12i3.pp3072-3082
+
+\bibitem{ref9} Narayanan SJ, Khithani A, Krishnan A, Singhania M, Perumal B et al.
+A computational intelligence approach for skin disease identification using
+machine/deep learning algorithms. In: Computational Intelligence in Healthcare
+Informatics 2021. pp. 269-295.
+
+\bibitem{ref10} Kshirsagar PR, Manoharan H, Shitharth S, Alshareef AM, Albishry N
+et al. Deep learning approaches for prognosis of automated skin disease. Life
+2022; 12 (3): 426. https://doi.org/10.3390/life12030426
+
+\bibitem{ref11} Codella NCF, Gutman D, Celebi ME, Helba B, Marchetti MA et al.
+Skin lesion analysis toward melanoma detection: ISIC 2018 challenge. In: IEEE
+International Symposium on Biomedical Imaging; Washington, DC, USA; 2018. pp.
+168-172. https://doi.org/10.1109/ISBI.2018.8363547
+
+\bibitem{ref12} Gessert N, Nielsen M, Shaikh M, Werner R, Schlaefer A. Skin lesion
+classification using ensembles of multi-resolution EfficientNets with metadata.
+MethodsX 2020; 7: 100864. https://doi.org/10.1016/j.mex.2020.100864
+
+\bibitem{ref13} Qian S, Ren K, Zhang W, Ning H. Skin lesion classification using
+CNNs with grouping of multi-scale attention and class-specific loss weighting.
+Computer Methods and Programs in Biomedicine 2022; 226: 107166.
+https://doi.org/10.1016/j.cmpb.2022.107166
+
+\bibitem{ref14} Annapoorani G, Manikandan P, Genitha CH. Evolving medical image
+classification: a three-tiered framework combining MSPLnet and IRNet-VGG19.
+Evolving Systems 2025; 16 (1): 19. https://doi.org/10.1007/s12530-024-09631-3
+
+\bibitem{ref15} Pacheco AGC, Krohling RA. The impact of patient clinical
+information on automated skin lesion classification. Computers in Biology and
+Medicine 2020; 116: 103545. https://doi.org/10.1016/j.compbiomed.2019.103545
+
+\bibitem{ref16} Dong X, Xiang Y, Chen S, Li Y, Feng J et al. Multi-modal fusion
+network with channel information guided module for prognosis prediction in
+patients with anti-N-methyl-D-aspartate receptor encephalitis. Displays 2023; 80:
+102548. https://doi.org/10.1016/j.displa.2023.102548
+
+\bibitem{ref17} Benachour Y, Maloukh L, Bouamama S, Geusens B. Predicting skin
+concern severity from genetic and lifestyle factors: a comparative multi-output
+machine learning framework. IEEE Access 2025; 13: 207672-207693.
+https://doi.org/10.1109/ACCESS.2025.3608123
+
+\bibitem{ref18} Zaheer AN, Farhan M, Min G, Alotaibi FA, Khan M. Attention-enhanced
+hybrid U-Net for prostate cancer grading and explainability. Scientific Reports
+2025; 15 (1): 34038. https://doi.org/10.1038/s41598-025-34038-9
+
+\bibitem{ref19} Lakshmi V, Pushpa B. Explainable multimodal deep learning using
+cross-attention fusion of ultrasound and clinical features for PCOS
+classification. Discover Computing 2026; 29 (1): 7.
+https://doi.org/10.1007/s10791-025-09512-6
+
+\bibitem{ref20} Rai G, Hussain A, Kumar A, Ansari A, Khanduja N. A deep learning
+approach to detect lumpy skin disease in cows. In: Computer Networks, Big Data and
+IoT. Singapore: Springer; 2021. pp. 369-377.
+\url{https://doi.org/10.1007/978-981-16-0965-7_30}
+
+\bibitem{ref21} Mujahid M, Rustam F, Shafique R, Montero EC, Alvarado ES et al.
+Prediction of lumpy skin disease virus using customized CBAM-DenseNet-attention
+model. BMC Infectious Diseases 2024; 24 (1): 1181.
+https://doi.org/10.1186/s12879-024-10032-9
+
+\bibitem{ref22} Attri I, Awasthi LK, Sharma TP, Kumar S, Verma S. SAAM-VetNet: an
+attention-based multi-task framework for animal disease detection and severity
+grading. Annals of Medicine and Surgery 2025; 87 (10): 6399-6408.
+https://doi.org/10.1097/MS9.0000000000003012
+
+\bibitem{ref23} Liu Z, Lin Y, Cao Y, Hu H, Wei Y et al. Swin Transformer:
+hierarchical vision transformer using shifted windows. In: IEEE/CVF International
+Conference on Computer Vision; Montreal, QC, Canada; 2021. pp. 10012-10022.
+https://doi.org/10.1109/ICCV48922.2021.00986
+
+\bibitem{ref24} Dosovitskiy A, Beyer L, Kolesnikov A, Weissenborn D, Zhai X et al.
+An image is worth 16x16 words: transformers for image recognition at scale. In:
+International Conference on Learning Representations; Vienna, Austria; 2021.
+
+\bibitem{ref25} Ruziboev A, Turimov D, Kim J, Kim W. Multiclass classification of
+sarcopenia severity in Korean adults using machine learning and model fusion
+approaches. Mathematics 2025; 13 (18): 2907.
+https://doi.org/10.3390/math13182907
+
+\bibitem{ref26} Loshchilov I, Hutter F. Decoupled weight decay regularization. In:
+International Conference on Learning Representations; New Orleans, LA, USA; 2019.
+
+\bibitem{ref27} Zhang H, Cisse M, Dauphin YN, Lopez-Paz D. mixup: beyond empirical
+risk minimization. In: International Conference on Learning Representations;
+Vancouver, BC, Canada; 2018.
+
+\bibitem{ref28} Yun S, Han D, Oh SJ, Chun S, Choe J et al. CutMix: regularization
+strategy to train strong classifiers with localizable features. In: IEEE/CVF
+International Conference on Computer Vision; Seoul, Korea; 2019. pp. 6023-6032.
+https://doi.org/10.1109/ICCV.2019.00612
+
+\bibitem{ref29} Guo C, Pleiss G, Sun Y, Weinberger KQ. On calibration of modern
+neural networks. In: International Conference on Machine Learning; Sydney,
+Australia; 2017. pp. 1321-1330.
+
+\end{thebibliography}
+
+\end{document}
