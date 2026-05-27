@@ -40,3 +40,47 @@ The ensemble was evaluated on 1,503 held-out test images from the HAM10000 datas
 ├── final_classification_report.csv       # Tabular output of precision, recall, and F1 per class
 └── README.md
 ```
+
+
+
+🛠️ Requirements & Installation
+Clone the repository:
+
+Bash
+   git clone [https://github.com/blazingarrows1525/SkinRisk-Ensemble]
+   cd SkinRisk-Ensemble
+Install the required dependencies:
+
+Bash
+   pip install torch torchvision pandas numpy scikit-learn matplotlib seaborn
+🧠 Model Weights
+Due to GitHub's file size limits, the trained model weights (.pth files) are hosted externally.
+
+Download the ensemble weights here: [https://drive.google.com/file/d/1AJemu5Ck3C31aJM571qoVxhaIWgBwo8t/view?usp=drive_link]
+
+Place the downloaded .pth files (convnext ensemble pth file - https://drive.google.com/file/d/1AJemu5Ck3C31aJM571qoVxhaIWgBwo8t/view?usp=drive_link
+b5 best pth - https://drive.google.com/file/d/14fN4wondgGgUQm8d5L-2KTODbGJRhIRG/view?usp=drive_link
+b4 - https://drive.google.com/file/d/1Dnq7s5pHbGYuoPNyD80_TcG9BONNdoKm/view?usp=drive_link.) 
+in the root directory before running inference in the notebook.
+
+📈 Training Details
+The network handles the severe 20:1 class imbalance of the HAM10000 dataset using:
+
+Loss Function: Class-weighted cross-entropy combined with label smoothing (ϵ=0.1).
+
+Augmentation: Joint image-metadata Mixup (λ∼Beta(0.3,0.3)) and CutMix.
+
+Optimization: AdamW optimizer with CosineAnnealingWarmRestarts and gradient clipping.
+
+Inference Strategy: Exhaustive 2-simplex weight sweep resulting in optimal soft-voting weights of (0.30, 0.30, 0.40).
+
+📄 Citation
+If you find this code or methodology useful in your research, please consider citing our work:
+
+Code snippet
+@article{trivedi2026skinrisk,
+  title={A heterogeneous three-model ensemble with per-backbone metadata fusion and fused class-activation mapping for ordinal skin-lesion severity staging},
+  author={Trivedi, Harsh and Kumar, Shiwank and Ranjan, Pranav and A, Sasikumar},
+  journal={Turkish Journal of Electrical Engineering & Computer Sciences},
+  year={2026}
+}
